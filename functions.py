@@ -1,28 +1,29 @@
 import numpy as np
 from const import * 
 
-def jacobianIK(O, endPos, startPos): 
-    while(np.abs(startPos - endPos) > 0.001): 
+def jacobianIK(O, endPos, startPos, EPS): 
+    while np.linalg.norm(startPos - endPos) > EPS: 
         dO = getDeltaOrientation(endPos, startPos)
         O += dO * 0.001
         startPos = FK(O)
+    return O
 
 def getDeltaOrientation(endPos, startPos): 
     Jt = getJacobianTranspose(endPos, startPos)
     V = endPos - startPos
-    dO = Jt @ V; 
+    dO = Jt @ V 
     return dO
 
 def getJacobianTranspose(endPos, startPos):
     xRotation = np.array([1, 0, 0])
     yRotation = np.array([0, 1 ,0])
-    # zRotation = np.array([0, 0, 1])
+    zRotation = np.array([0, 0, 1])
     
-    J_A = np.cross(xRotation, endPos-startPos)
+    J_A = np.cross(zRotation, endPos-startPos)
     J_B = np.cross(yRotation, endPos-startPos)
     J_C = np.cross(yRotation, endPos-startPos)
 
-    J = J = np.vstack((J_A, J_B, J_C))
+    J = np.vstack((J_A, J_B, J_C))
     return J.transpose()
 
 def FK(O): 
@@ -38,5 +39,16 @@ def FK(O):
     # Finding the forearm height d6 
     d6 = FOREARM_LENGHT*np.cos(convertToRad(alpha_5))
 
-    #
-    return 0
+    # Finding z 
+    z = BASE_HEIGHT + d3 - d6
+
+    # Finding the hypotanus of the arm top-view (x and y)
+    d4 = ARM_LENGHT*np.cos(convertToRad(O[1]))
+    d5 = FOREARM_LENGHT*np.sin(convertToRad(alpha_5))
+    d1 = d4 + d5
+
+    # Finding x and y 
+    y = d1*np.sin(convertToRad(O[0]))
+    x = d1*np.cos(convertToRad(O[0]))
+    
+    return np.array([x, y, z])
