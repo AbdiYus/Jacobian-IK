@@ -2,10 +2,15 @@ import numpy as np
 from const import * 
 
 def jacobianIK(O, endPos, startPos, EPS): 
-    while np.linalg.norm(startPos - endPos) > EPS: 
+    limit = 0
+    while np.linalg.norm(startPos - endPos) > EPS and limit < 100: 
         dO = getDeltaOrientation(endPos, startPos)
         O += dO * 0.001
         startPos = FK(O)
+        limit += 1
+        print(f"Startposition: {startPos}, and endpos: {endPos}")
+        if limit == 99:
+            print("99 done")
     return O
 
 def getDeltaOrientation(endPos, startPos): 
@@ -52,3 +57,33 @@ def FK(O):
     x = d1*np.cos(convertToRad(O[0]))
     
     return np.array([x, y, z])
+
+
+################################################################################
+# Implementing gradient decent 
+
+def distanceFromTarget(target, O):
+    currentPos = FK(O) 
+    return np.linalg.norm(currentPos - target)
+
+def partialGradient(target, O, i, delta=1e-3):
+    angle = O[i] 
+    f_x = distanceFromTarget(target, O)
+    O[i] += delta 
+    f_x_plus_d = distanceFromTarget(target, O)
+    gradient = (f_x_plus_d - f_x) / delta 
+    O[i] = angle 
+    return gradient 
+
+def IK(target, O, learning=0.1, threshold=0.1, max_iterations=1000):
+    for iteration in range(max_iterations):
+        if distanceFromTarget(target, O) < threshold:
+            return
+        for i in range(2, -1, -1):  # amount of joints of the robot
+            gradient = partialGradient(target, O, i)
+            O[i] -= learning * gradient
+            print(f"Iteration {iteration}, Joint {i}: Gradient = {gradient}, Angle Before = {O[i] + learning * gradient}")
+            print(f"Angle After = {O[i]}")
+            if distanceFromTarget(target, O) < threshold:
+                return
+    print(f"result: {O} and position:{FK(O)}")
