@@ -1,89 +1,56 @@
 import numpy as np
 from const import * 
 
-def jacobianIK(O, endPos, startPos, EPS): 
-    limit = 0
-    while np.linalg.norm(startPos - endPos) > EPS and limit < 100: 
-        dO = getDeltaOrientation(endPos, startPos)
-        O += dO * 0.001
-        startPos = FK(O)
-        limit += 1
-        print(f"Startposition: {startPos}, and endpos: {endPos}")
-        if limit == 99:
-            print("99 done")
-    return O
+def jacobianIK(O, targetPos): 
+    endEffectorPos = ForwardKin(O)
+    while(np.linalg.norm(endEffectorPos - targetPos) > 0.5): 
+        dO = getDeltaOrientation(O, targetPos)
+        O += dO * 0.01 / np.linalg.norm(dO)
+        print(f"new O: {O}")
+        endEffectorPos = ForwardKin(O)
 
-def getDeltaOrientation(endPos, startPos): 
-    Jt = getJacobianTranspose(endPos, startPos)
-    V = endPos - startPos
+def getDeltaOrientation(O, targetPos): 
+    Jt = np.linalg.pinv(getJacobianTranspose(O))
+    endEffectorPos = ForwardKin(O)
+    V = targetPos - endEffectorPos
     dO = Jt @ V 
     return dO
 
-def getJacobianTranspose(endPos, startPos):
-    xRotation = np.array([1, 0, 0])
-    yRotation = np.array([0, 1 ,0])
-    zRotation = np.array([0, 0, 1])
+def getJacobianTranspose(O):
+    # Get the positions
+    startPos = np.array([0, 0, 0])  # Base is at the origin
+    endPos = ForwardKin(O)  # End effector position
     
-    J_A = np.cross(zRotation, endPos-startPos)
-    J_B = np.cross(yRotation, endPos-startPos)
-    J_C = np.cross(yRotation, endPos-startPos)
-
+    # Define the rotation axes
+    zRotation = np.array([0, 0, 1])  # Rotation around the z-axis for DOF 1 (z-rotation)
+    
+    # Polar rotation axes for arm and forearm (in xy-plane)
+    # The polar rotation is around the axes that depend on the current orientation of the joint
+    polarArmAxis = np.array([-np.sin(O[0]), np.cos(O[0]), 0])  # Rotation axis perpendicular to radial vector
+    polarForearmAxis = polarArmAxis  # Forearm shares the same axis for polar rotation
+    
+    # Cross products for each joint
+    J_A = np.cross(zRotation, endPos - startPos)  # Z-rotation effect
+    J_B = np.cross(polarArmAxis, endPos - startPos)  # Polar rotation of arm
+    J_C = np.cross(polarForearmAxis, endPos - armKin(O))  # Polar rotation of forearm
+    
+    # Stack the results into a matrix
     J = np.vstack((J_A, J_B, J_C))
-    return J.transpose()
+    return J.T
 
-def FK(O): 
-    convertToRad = lambda x: x*(np.pi/180)
+def armKin(O):
+    x1 = ARM_LENGHT*np.cos(O[0])*np.sin(O[1])
+    y1 = ARM_LENGHT*np.sin(O[0])*np.sin(O[1])
+    z1 = ARM_LENGHT*np.cos(O[1])
+    return np.array([x1, y1, z1])
 
-    # Finding alpha 4 and 5 (angles between the arm and forearm)
-    alpha_4 = 180 - O[1] - 90 
-    alpha_5 = O[2] - alpha_4
+def ForwardKin(O): 
+    x1 = ARM_LENGHT*np.cos(O[0])*np.sin(O[1])
+    y1 = ARM_LENGHT*np.sin(O[0])*np.sin(O[1])
+    z1 = ARM_LENGHT*np.cos(O[1])
 
-    # Finding the height of the arm minus the height of the base (d3)
-    d3 = ARM_LENGHT*np.sin(convertToRad(O[1]))
+    x2 = x1+FOREARM_LENGHT*np.cos(O[0])*np.sin(O[2])
+    y2 = y1+FOREARM_LENGHT*np.sin(O[0])*np.sin(O[2])
+    z2 = z1+FOREARM_LENGHT*np.cos(O[2])
+    return np.array([x2, y2, z2])
 
-    # Finding the forearm height d6 
-    d6 = FOREARM_LENGHT*np.cos(convertToRad(alpha_5))
-
-    # Finding z 
-    z = BASE_HEIGHT + d3 - d6
-
-    # Finding the hypotanus of the arm top-view (x and y)
-    d4 = ARM_LENGHT*np.cos(convertToRad(O[1]))
-    d5 = FOREARM_LENGHT*np.sin(convertToRad(alpha_5))
-    d1 = d4 + d5
-
-    # Finding x and y 
-    y = d1*np.sin(convertToRad(O[0]))
-    x = d1*np.cos(convertToRad(O[0]))
-    
-    return np.array([x, y, z])
-
-
-################################################################################
-# Implementing gradient decent 
-
-def distanceFromTarget(target, O):
-    currentPos = FK(O) 
-    return np.linalg.norm(currentPos - target)
-
-def partialGradient(target, O, i, delta=1e-3):
-    angle = O[i] 
-    f_x = distanceFromTarget(target, O)
-    O[i] += delta 
-    f_x_plus_d = distanceFromTarget(target, O)
-    gradient = (f_x_plus_d - f_x) / delta 
-    O[i] = angle 
-    return gradient 
-
-def IK(target, O, learning=0.1, threshold=0.1, max_iterations=1000):
-    for iteration in range(max_iterations):
-        if distanceFromTarget(target, O) < threshold:
-            return
-        for i in range(2, -1, -1):  # amount of joints of the robot
-            gradient = partialGradient(target, O, i)
-            O[i] -= learning * gradient
-            print(f"Iteration {iteration}, Joint {i}: Gradient = {gradient}, Angle Before = {O[i] + learning * gradient}")
-            print(f"Angle After = {O[i]}")
-            if distanceFromTarget(target, O) < threshold:
-                return
-    print(f"result: {O} and position:{FK(O)}")
